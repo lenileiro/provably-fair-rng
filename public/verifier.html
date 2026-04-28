@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Provably Fair Verifier</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+      background: #0a0a0f;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem;
+    }
+    .container { width: 100%; max-width: 720px; }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+      color: #a78bfa;
+    }
+    .subtitle {
+      font-size: 0.875rem;
+      color: #94a3b8;
+      margin-bottom: 2rem;
+    }
+    .card {
+      background: #12121c;
+      border: 1px solid #2d2d3d;
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .card h2 { font-size: 1rem; font-weight: 600; margin-bottom: 1rem; color: #c4b5fd; }
+    .field { margin-bottom: 1rem; }
+    label { display: block; font-size: 0.75rem; color: #94a3b8; margin-bottom: 0.35rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    input {
+      width: 100%;
+      background: #1e1e2e;
+      border: 1px solid #3d3d5c;
+      border-radius: 8px;
+      padding: 0.625rem 0.75rem;
+      color: #e2e8f0;
+      font-family: monospace;
+      font-size: 0.875rem;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input:focus { border-color: #7c3aed; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    button {
+      width: 100%;
+      padding: 0.75rem;
+      background: #7c3aed;
+      border: none;
+      border-radius: 8px;
+      color: white;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    button:hover { background: #6d28d9; }
+    button:disabled { background: #3d2d5c; color: #94a3b8; cursor: not-allowed; }
+    .result {
+      display: none;
+      margin-top: 1.5rem;
+      padding: 1.25rem;
+      border-radius: 10px;
+      border: 1px solid;
+    }
+    .result.valid { background: #0d2e1a; border-color: #16a34a; }
+    .result.invalid { background: #2e0d0d; border-color: #dc2626; }
+    .result-title { font-weight: 700; font-size: 1.1rem; margin-bottom: 0.75rem; }
+    .result.valid .result-title { color: #4ade80; }
+    .result.invalid .result-title { color: #f87171; }
+    .result-row { display: flex; flex-direction: column; margin-bottom: 0.5rem; }
+    .result-label { font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
+    .result-value { font-family: monospace; font-size: 0.8rem; word-break: break-all; color: #e2e8f0; }
+    .algo-box {
+      background: #1a1a2e;
+      border: 1px solid #2d2d4e;
+      border-radius: 8px;
+      padding: 1rem;
+      font-size: 0.8rem;
+      line-height: 1.7;
+    }
+    .algo-box code { color: #a78bfa; }
+    .tab-row { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+    .tab {
+      padding: 0.4rem 1rem;
+      border-radius: 6px;
+      border: 1px solid #3d3d5c;
+      background: transparent;
+      color: #94a3b8;
+      font-size: 0.8rem;
+      cursor: pointer;
+      width: auto;
+      transition: all 0.15s;
+    }
+    .tab.active { background: #7c3aed; border-color: #7c3aed; color: white; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    #loading { display: none; color: #94a3b8; font-size: 0.875rem; margin-top: 0.5rem; }
+    #error-msg { display: none; color: #f87171; font-size: 0.875rem; margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Provably Fair Verifier</h1>
+    <p class="subtitle">Independently verify any game round outcome using HMAC-SHA256 — no login required.</p>
+
+    <div class="card">
+      <h2>How It Works</h2>
+      <div class="algo-box">
+        <strong>Algorithm:</strong> HMAC-SHA256<br>
+        <code>outcome = HMAC_SHA256(key=serverSeed, data="clientSeed:nonce")</code><br><br>
+        <strong>Flow:</strong><br>
+        1. Before each round, the server commits <code>SHA256(serverSeed)</code> to the client.<br>
+        2. The client provides their own <code>clientSeed</code>.<br>
+        3. After the round, the server reveals <code>serverSeed</code>.<br>
+        4. Anyone can verify: compute HMAC and compare to the recorded outcome.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Verify a Round</h2>
+
+      <div class="tab-row">
+        <button class="tab active" onclick="switchTab('manual')">Manual Input</button>
+        <button class="tab" onclick="switchTab('lookup')">Lookup by Round ID</button>
+      </div>
+
+      <div id="panel-manual" class="tab-panel active">
+        <div class="field">
+          <label>Server Seed (revealed after round)</label>
+          <input type="text" id="serverSeed" placeholder="64-char hex string" />
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Client Seed</label>
+            <input type="text" id="clientSeed" placeholder="Your client seed" />
+          </div>
+          <div class="field">
+            <label>Nonce</label>
+            <input type="number" id="nonce" placeholder="0" min="0" />
+          </div>
+        </div>
+        <div class="field">
+          <label>Expected Outcome (from round record)</label>
+          <input type="text" id="expectedOutcome" placeholder="64-char hex outcome" />
+        </div>
+        <button onclick="verifyManual()">Verify Outcome</button>
+      </div>
+
+      <div id="panel-lookup" class="tab-panel">
+        <div class="field">
+          <label>Round ID</label>
+          <input type="text" id="roundId" placeholder="UUID" />
+        </div>
+        <button onclick="lookupAndVerify()">Look Up &amp; Verify</button>
+        <div id="loading">Loading round data…</div>
+        <div id="error-msg"></div>
+      </div>
+
+      <div class="result" id="result">
+        <div class="result-title" id="result-title"></div>
+        <div class="result-row">
+          <span class="result-label">Server Seed Hash (committed)</span>
+          <span class="result-value" id="res-hash"></span>
+        </div>
+        <div class="result-row">
+          <span class="result-label">Computed Outcome</span>
+          <span class="result-value" id="res-computed"></span>
+        </div>
+        <div class="result-row">
+          <span class="result-label">Stored Outcome</span>
+          <span class="result-value" id="res-stored"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Read URL params for shareable links: /verify?roundId=<id>
+    (function() {
+      const params = new URLSearchParams(window.location.search);
+      const rid = params.get('roundId');
+      if (rid) {
+        switchTab('lookup');
+        document.getElementById('roundId').value = rid;
+        lookupAndVerify();
+      }
+      const ss = params.get('serverSeed');
+      if (ss) {
+        document.getElementById('serverSeed').value = ss;
+        document.getElementById('clientSeed').value = params.get('clientSeed') || '';
+        document.getElementById('nonce').value = params.get('nonce') || '0';
+        document.getElementById('expectedOutcome').value = params.get('expectedOutcome') || '';
+      }
+    })();
+
+    function switchTab(tab) {
+      document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.querySelector(`button[onclick="switchTab('${tab}')"]`).classList.add('active');
+      document.getElementById(`panel-${tab}`).classList.add('active');
+      hideResult();
+    }
+
+    function hideResult() {
+      document.getElementById('result').style.display = 'none';
+    }
+
+    async function verifyManual() {
+      const serverSeed = document.getElementById('serverSeed').value.trim();
+      const clientSeed = document.getElementById('clientSeed').value.trim();
+      const nonce = parseInt(document.getElementById('nonce').value, 10);
+      const expectedOutcome = document.getElementById('expectedOutcome').value.trim();
+
+      if (!serverSeed || !clientSeed || isNaN(nonce) || !expectedOutcome) {
+        alert('All fields are required.');
+        return;
+      }
+
+      const computed = await hmacSHA256(serverSeed, `${clientSeed}:${nonce}`);
+      const serverSeedHash = await sha256(serverSeed);
+      showResult(computed === expectedOutcome, serverSeedHash, computed, expectedOutcome);
+    }
+
+    async function lookupAndVerify() {
+      const roundId = document.getElementById('roundId').value.trim();
+      if (!roundId) { alert('Round ID is required.'); return; }
+
+      showLoading(true);
+      hideError();
+      hideResult();
+
+      try {
+        const res = await fetch(`/api/rounds/${roundId}`);
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          showError(err.error || 'Round not found');
+          return;
+        }
+        const round = await res.json();
+        const computed = await hmacSHA256(round.serverSeed, `${round.clientSeed}:${round.nonce}`);
+        const serverSeedHash = await sha256(round.serverSeed);
+        showResult(computed === round.outcome, serverSeedHash, computed, round.outcome);
+
+        // Update URL for shareability
+        const url = new URL(window.location.href);
+        url.searchParams.set('roundId', roundId);
+        window.history.replaceState({}, '', url.toString());
+      } catch (e) {
+        showError('Network error: ' + e.message);
+      } finally {
+        showLoading(false);
+      }
+    }
+
+    function showResult(valid, hash, computed, stored) {
+      const el = document.getElementById('result');
+      el.className = 'result ' + (valid ? 'valid' : 'invalid');
+      el.style.display = 'block';
+      document.getElementById('result-title').textContent = valid
+        ? '✓ Outcome Verified — Round is provably fair'
+        : '✗ Outcome Mismatch — Verification failed';
+      document.getElementById('res-hash').textContent = hash;
+      document.getElementById('res-computed').textContent = computed;
+      document.getElementById('res-stored').textContent = stored;
+    }
+
+    function showLoading(show) {
+      document.getElementById('loading').style.display = show ? 'block' : 'none';
+    }
+    function showError(msg) {
+      const el = document.getElementById('error-msg');
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+    function hideError() {
+      document.getElementById('error-msg').style.display = 'none';
+    }
+
+    // Browser-native HMAC-SHA256
+    async function hmacSHA256(keyHex, message) {
+      const keyBytes = hexToBytes(keyHex);
+      const msgBytes = new TextEncoder().encode(message);
+      const cryptoKey = await crypto.subtle.importKey(
+        'raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+      );
+      const sig = await crypto.subtle.sign('HMAC', cryptoKey, msgBytes);
+      return bytesToHex(new Uint8Array(sig));
+    }
+
+    // Browser-native SHA256
+    async function sha256(hexInput) {
+      const bytes = hexToBytes(hexInput);
+      const digest = await crypto.subtle.digest('SHA-256', bytes);
+      return bytesToHex(new Uint8Array(digest));
+    }
+
+    function hexToBytes(hex) {
+      const bytes = new Uint8Array(hex.length / 2);
+      for (let i = 0; i < hex.length; i += 2) {
+        bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16);
+      }
+      return bytes;
+    }
+
+    function bytesToHex(bytes) {
+      return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+  </script>
+</body>
+</html>
